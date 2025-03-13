@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,9 +19,7 @@
         }
     </style>
 </head>
-
 <body>
-
     <h2>Enviar número para llamada</h2>
     <input type="tel" id="phoneNumber" placeholder="Ingresar el número" required>
     <button onclick="sendPhoneNumber()">Enviar</button>
@@ -38,7 +35,7 @@
             }
 
             try {
-                const response = await fetch("http://localhost:5050/make-call", {
+                const response = await fetch("https://jellyfish-app-tcjx4.ondigitalocean.app/make-call", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ phone: phoneNumber })
@@ -51,9 +48,6 @@
                 console.error("Error:", error);
             }
         }
-
     </script>
-
 </body>
-
 </html>
