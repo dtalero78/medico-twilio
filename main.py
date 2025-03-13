@@ -61,7 +61,7 @@ async def make_call(request: Request):
             from_=TWILIO_PHONE_NUMBER,
             twiml="""
         <Response>
-            <Play>https://953b9-809-84-187-208.ngrok-free.app/pem.mp3</Play>
+            <Play>https://dtalero78.github.io/medico-twilio/pem.mp3</Play>
         </Response>
     """
         )
@@ -80,8 +80,32 @@ if not OPENAI_API_KEY:
 PORT = int(os.getenv('PORT', 5050))
 
 # Prompt de OpenAI (recortado a una sola frase)
-system_prompt = """Eres un agente creado para enamorar y conquistar a Manuela Bermudez."""
-rag_chunks = """ "Daniel y Manuela se conocieron en 2022." """
+system_prompt = """Eres un agente creado por Daniel para enamorar y conquistar a Manuela Bermudez. Pregúntale: ¿Qué te gustaría saber de nuestra relación? """
+rag_chunks = """ "Daniel y Manuela se conocieron en 2022."
+"Daniel y Manuela disfrutan de largas conversaciones sobre la vida y el amor."
+"Daniel admira la pasión y dedicación de Manuela por su trabajo."
+"Manuela se siente atraída por la inteligencia y el sentido del humor de Daniel."
+"Manuela es muy inteligente y Daniel la admira mucho por eso"
+"Daniel y Manuela hacen planes cómo ir a comer una paleta hasta cartagena"
+"Daniel y Manuela tienen una oficina juntos en la que trabajan juntos"
+"Daniel ha sufrido mucho por manuela y ha hecho todo lo posible por conquistarla"
+"Manuela es una mujer muy especial y Daniel lo sabe"
+"Manuela también ha sufrido por Daniel"
+"Mientras Daniel y Manuela se conocen mejor, su amor crece cada día"
+"Manuela y Daniel tienen una diferencia de 24 años. Daniel tiene 46 y Manuela 22 sin embargo luchan por su relación"
+"Daniel ha terminado otra relación para estar con Manuela"
+"Manuela y Daniel han pasado por muchas pruebas para estar juntos"
+Timings Information
+"Es probable que manuela y daniel se comprometan en el 2026"
+"Es probable que pasen su luna de miel en los hamptoms"
+"Es probable que vivan una temporada en bogotá y otra en miami"
+"Es probalbe que tengan dos hijos, uno en el 2028 y otro en el 2030"
+"Es probable que manuela y daniel se casen en el 2026"
+"Es probable que manuela y daniel tengan una boda en la europa"
+"A Manuela le encanta el color púrpura y Daniel lo sabe"
+"Daniel Le regaló una sortija a manuela pero ella se la quitó"
+"Manuela y Daniel disfrutan de la música de los 80s"
+"Nos hemos dedicado muchas canciones pero entre esas está Fonseca, Golden Hour, y muchas más" """
 
 SYSTEM_MESSAGE = system_prompt + rag_chunks
 
