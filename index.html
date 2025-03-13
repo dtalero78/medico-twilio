@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enviar Número</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+
+        input,
+        button {
+            font-size: 16px;
+            padding: 10px;
+            margin: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>Enviar número para llamada</h2>
+    <input type="tel" id="phoneNumber" placeholder="Ingresar el número" required>
+    <button onclick="sendPhoneNumber()">Enviar</button>
+
+    <p id="responseMessage"></p>
+
+    <script>
+        async function sendPhoneNumber() {
+            const phoneNumber = document.getElementById("phoneNumber").value;
+            if (!phoneNumber) {
+                alert("Por favor ingresa un número.");
+                return;
+            }
+
+            try {
+                const response = await fetch("http://localhost:5050/make-call", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ phone: phoneNumber })
+                });
+
+                const result = await response.json();
+                document.getElementById("responseMessage").innerText = result.message || "Llamada en curso...";
+            } catch (error) {
+                document.getElementById("responseMessage").innerText = "Error al realizar la llamada.";
+                console.error("Error:", error);
+            }
+        }
+
+    </script>
+
+</body>
+
+</html>
