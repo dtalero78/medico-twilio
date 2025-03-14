@@ -5,68 +5,47 @@ import asyncio
 import websockets
 import httpx
 from fastapi import FastAPI, WebSocket, Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from twilio.rest import Client
-from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ===================================================
-# 1) Instancia única de FastAPI y configuración básica
-# ===================================================
 app = FastAPI()
 
-# Endpoint para servir el archivo mp3
 @app.get("/pem.mp3")
 def serve_mp3():
     return FileResponse("pem.mp3", media_type="audio/mpeg")
 
-# Middleware de CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Modifica si deseas restringir orígenes
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ===================================================
-# 2) Configuración de Twilio
-# ===================================================
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_FROM")
 
 client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# Endpoint OPTIONS para solicitudes preflight en /make-call
 @app.options("/make-call")
 async def options_make_call():
     return JSONResponse(content={}, status_code=200)
 
-# ===================================================
-# 3) Endpoint para iniciar llamada saliente
-# ===================================================
 @app.api_route("/make-call", methods=["OPTIONS", "POST"])
 async def make_call(request: Request):
-    """
-    Recibe un JSON con:
-      - "phone": número de celular a marcar.
-      - "ref": identificador del paciente.
-    Genera un TwiML dinámico que, al contestar, conecta al endpoint /media-stream pasando el parámetro ref.
-    """
     data = await request.json()
     phone_number = data.get("phone")
     ref = data.get("ref", "")
     if not phone_number:
         return JSONResponse(content={"error": "Número no proporcionado"}, status_code=400)
     
-    # Usamos el hostname del request para construir la URL del stream
     host = request.url.hostname or "tu-dominio.com"
     
-    # Generamos el TwiML dinámico
     twiml = f"""
 <Response>
   <Connect>
@@ -85,19 +64,11 @@ async def make_call(request: Request):
         print("Error al crear la llamada:", e)
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# ===================================================
-# 4) Configuración de OpenAI Realtime
-# ===================================================
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 if not OPENAI_API_KEY:
     raise ValueError('Falta la clave de OpenAI (OPENAI_API_KEY) en .env')
 
 PORT = int(os.getenv('PORT', 5050))
-
-# Mensaje base de instrucciones (fallback)
-system_prompt = "Eres un agente médico de salud laboral para verificar datos médicos de un paciente."
-rag_chunks = " Pregunta por los sintomas que son los siguientes:"
-SYSTEM_MESSAGE = system_prompt + rag_chunks
 
 VOICE = 'echo'
 LOG_EVENT_TYPES = [
@@ -106,15 +77,11 @@ LOG_EVENT_TYPES = [
     'input_audio_buffer.speech_stopped', 'input_audio_buffer.speech_started',
     'session.created'
 ]
-SHOW_TIMING_MATH = False
 
 @app.get("/", response_class=JSONResponse)
 async def index_page():
     return {"message": "Twilio Media Stream Server is running!"}
 
-# ===================================================
-# 5) Función para obtener datos del paciente (según ref)
-# ===================================================
 async def fetch_patient_data(patient_id: str):
     url = f"https://www.bsl.com.co/_functions/chatbot?_id={patient_id}"
     async with httpx.AsyncClient() as client:
@@ -122,36 +89,39 @@ async def fetch_patient_data(patient_id: str):
         response.raise_for_status()
         return response.json()
 
-# ===================================================
-# 6) WebSocket para el Media Stream (Twilio <-> OpenAI)
-# ===================================================
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
     print("Cliente conectado en /media-stream")
     await websocket.accept()
 
-    # Extraer el parámetro ref para identificar al paciente
+    # 1) Extraemos ref (patient_id)
     patient_id = websocket.query_params.get('ref')
     if patient_id:
         try:
             patient_data = await fetch_patient_data(patient_id)
-            # Se asume que la respuesta contiene las claves: primerNombre, encuestaSalud y antecedentesFamiliares
             primerNombre = patient_data.get("primerNombre", "Paciente")
             encuestaSalud = ", ".join(patient_data.get("encuestaSalud", []))
             antecedentesFamiliares = ", ".join(patient_data.get("antecedentesFamiliares", []))
-            instructions = (
-                f"Eres un asistente de salud ocupacional de BSL. Pregunta a este paciente sobre su historial de salud. "
-                f"El paciente se llama {primerNombre}. Historial de salud: {encuestaSalud}. "
-                f"Antecedentes familiares: {antecedentesFamiliares}. "
-                "Salúdalo por su nombre, sé profesional, cálido y empático, y sé breve. "
-                "Al finalizar, despídete e indica que en breve se comunicarán para entregar su certificado."
+
+            # Construimos el prompt
+            system_prompt = (
+                f"Eres un asistente de salud ocupacional de BSL. "
+                f"El paciente se llama {primerNombre}. "
+                f"Su historial de salud: {encuestaSalud}. "
+                f"Sus antecedentes familiares: {antecedentesFamiliares}. "
+                "Al iniciar la llamada, salúdalo por su nombre y pregunta específicamente "
+                "por cada uno de los puntos de su historial de salud y de sus antecedentes familiares. "
+                "Verifica si hay novedades o cambios en cada ítem. "
+                "Sé profesional, cálido y empático, y sé breve. "
+                "Al finalizar, despídete indicando que pronto se comunicarán para entregar su certificado."
             )
         except Exception as e:
             print("Error al obtener datos del paciente:", e)
-            instructions = SYSTEM_MESSAGE
+            system_prompt = "Eres un asistente de salud ocupacional de BSL."
     else:
-        instructions = SYSTEM_MESSAGE
+        system_prompt = "Eres un asistente de salud ocupacional de BSL."
 
+    # 2) Conectamos con OpenAI Realtime
     async with websockets.connect(
         'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
         extra_headers={
@@ -159,9 +129,16 @@ async def handle_media_stream(websocket: WebSocket):
             "OpenAI-Beta": "realtime=v1"
         }
     ) as openai_ws:
-        await initialize_session(openai_ws, instructions)
+        # Inicializamos la sesión (sin instructions, para no enmascarar el system message)
+        await initialize_session(openai_ws)
 
-        # Variables de estado para gestionar el stream
+        # 3) Enviamos el system message
+        await send_system_message_item(openai_ws, system_prompt)
+
+        # 4) Enviamos un mensaje de usuario que dispare la respuesta del bot
+        await send_initial_user_item(openai_ws)
+
+        # Variables de estado
         stream_sid = None
         latest_media_timestamp = 0
         last_assistant_item = None
@@ -198,7 +175,8 @@ async def handle_media_stream(websocket: WebSocket):
                     response = json.loads(openai_message)
                     if response['type'] in LOG_EVENT_TYPES:
                         print(f"Evento recibido: {response['type']}", response)
-                    # Procesar audio parcial recibido desde OpenAI y reenviarlo a Twilio
+
+                    # Procesar audio parcial
                     if response.get('type') == 'response.audio.delta' and 'delta' in response:
                         audio_payload = base64.b64encode(
                             base64.b64decode(response['delta'])
@@ -211,12 +189,15 @@ async def handle_media_stream(websocket: WebSocket):
                             }
                         }
                         await websocket.send_json(audio_delta)
+
                         if response_start_timestamp_twilio is None:
                             response_start_timestamp_twilio = latest_media_timestamp
                         if response.get('item_id'):
                             last_assistant_item = response['item_id']
+
                         await send_mark(websocket, stream_sid)
-                    # Si se detecta inicio de habla del usuario, interrumpir respuesta actual
+
+                    # Interrupción si el usuario empieza a hablar
                     if response.get('type') == 'input_audio_buffer.speech_started':
                         print("Inicio de habla detectado.")
                         if last_assistant_item:
@@ -252,15 +233,21 @@ async def handle_media_stream(websocket: WebSocket):
                     "streamSid": stream_sid,
                     "mark": {"name": "responsePart"}
                 }
-                await connection.send_json(mark_event)
+                await connection.send_json(json.dumps(mark_event))
                 mark_queue.append('responsePart')
 
         await asyncio.gather(receive_from_twilio(), send_to_twilio())
 
-# ===================================================
-# 7) Función para inicializar la sesión con OpenAI Realtime
-# ===================================================
-async def initialize_session(openai_ws, instructions):
+
+# ----------------------------------------------------------------------
+# FUNCIONES DE INICIALIZACIÓN DE SESIÓN Y ENVÍO DE MENSAJES
+# ----------------------------------------------------------------------
+
+async def initialize_session(openai_ws):
+    """
+    Inicia la sesión con el Realtime API sin poner instructions aquí,
+    para no enmascarar el system message que crearemos manualmente.
+    """
     session_update = {
         "type": "session.update",
         "session": {
@@ -268,17 +255,64 @@ async def initialize_session(openai_ws, instructions):
             "input_audio_format": "g711_ulaw",
             "output_audio_format": "g711_ulaw",
             "voice": VOICE,
-            "instructions": instructions,
             "modalities": ["text", "audio"],
             "temperature": 0.8,
         }
     }
-    print('Enviando actualización de sesión:', json.dumps(session_update))
+    print("Enviando session.update sin instructions.")
     await openai_ws.send(json.dumps(session_update))
 
-# ===================================================
-# 8) Ejecutar la aplicación
-# ===================================================
+async def send_system_message_item(openai_ws, system_prompt: str):
+    """
+    Envía un mensaje de rol 'system' con el prompt detallado.
+    Esto obliga al modelo a seguir estas directrices como prioridad.
+    """
+    system_message_event = {
+        "type": "conversation.item.create",
+        "item": {
+            "type": "message",
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": system_prompt
+                }
+            ]
+        }
+    }
+    print("Enviando system message con el prompt:", system_prompt)
+    await openai_ws.send(json.dumps(system_message_event))
+    # Forzamos la respuesta para que el modelo tome en cuenta este system message
+    await openai_ws.send(json.dumps({"type": "response.create"}))
+
+async def send_initial_user_item(openai_ws):
+    """
+    Envía un mensaje de usuario que detona la primera respuesta del bot,
+    basándose en el system message ya presente.
+    """
+    user_message_event = {
+        "type": "conversation.item.create",
+        "item": {
+            "type": "message",
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "La llamada ha sido contestada. Por favor saluda al paciente "
+                        "por su nombre y pregunta por su historial y antecedentes."
+                    )
+                }
+            ]
+        }
+    }
+    print("Enviando user message inicial para detonar respuesta.")
+    await openai_ws.send(json.dumps(user_message_event))
+    # Generamos la respuesta del bot
+    await openai_ws.send(json.dumps({"type": "response.create"}))
+
+# ----------------------------------------------------------------------
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 5050)))
